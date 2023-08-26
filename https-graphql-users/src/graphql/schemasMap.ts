@@ -17,7 +17,7 @@ const typeDefs = /* GraphQL */ `
 const resolvers = mergeResolvers([UserResolvers, {
     Query: {
         // 2. Setup a query that exposes the raw SDL...
-        _sdl: () => typeDefs,
+        _sdlUser: () => typeDefs,
     },
 }]);
 

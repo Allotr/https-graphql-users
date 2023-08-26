@@ -3,13 +3,22 @@ import { LocalRole, OperationResult, Resolvers, ResourceDbObject, ResourceNotifi
 import { ObjectId, ReadConcern, ReadPreference, TransactionOptions, WriteConcern } from "mongodb"
 import { NOTIFICATIONS, RESOURCES, USERS } from "../../consts/collections";
 import { clearOutQueueDependantTickets, removeUsersInQueue } from "../../utils/resolver-utils";
-import express from "express";
+import { GraphQLContext } from "../../types/yoga-context";
+import { GraphQLError } from "graphql";
 
 
 export const UserResolvers: Resolvers = {
   Query: {
-    currentUser: (parent, args, context: express.Request) => context.user as User,
-    searchUsers: async (parent, args, context: express.Request) => {
+    currentUser: async (parent, args, context: GraphQLContext) => {
+      const db = await (await context.mongoDBConnection).db;
+      const idToSearch = new ObjectId(context?.user?._id ?? "");
+      const user = await db.collection<UserDbObject>(USERS).findOne({ _id: idToSearch });
+      if (user == null) {
+        throw new GraphQLError("Cannot read user")
+      }
+      return user! as User;
+    },
+    searchUsers: async (parent, args, context: GraphQLContext) => {
       const db = await (await context.mongoDBConnection).db;
 
       const usersFound = await db.collection<UserDbObject>(USERS).find(
@@ -24,7 +33,7 @@ export const UserResolvers: Resolvers = {
       }).toArray();
 
       const userData = usersFound.map(({ _id, username = "", name = "", surname = "" }) => ({
-        id: _id?.toHexString(),
+        id: _id?.toHexString()!,
         username,
         name,
         surname
@@ -34,9 +43,9 @@ export const UserResolvers: Resolvers = {
     }
   },
   Mutation: {
-    deleteUser: async (parent, args, context: express.Request) => {
-      const { deleteAllFlag, userIdToDelete } = args;
-      if (!new ObjectId(userIdToDelete).equals(context?.user?._id ?? "")) {
+    deleteUser: async (parent, args, context: GraphQLContext) => {
+      const { deleteAllFlag, userIdToDelete: userId } = args;
+      if (!new ObjectId(userId).equals(context?.user?._id ?? "")) {
         return { status: OperationResult.Error }
       }
 
@@ -58,9 +67,9 @@ export const UserResolvers: Resolvers = {
 
       for (const resource of userResourceList) {
         try {
-          await clearOutQueueDependantTickets(resource, [{ id: userIdToDelete, role: LocalRole.ResourceUser }], context, TicketStatusCode.AwaitingConfirmation, db);
-          await clearOutQueueDependantTickets(resource, [{ id: userIdToDelete, role: LocalRole.ResourceUser }], context, TicketStatusCode.Active, db);
-          await removeUsersInQueue(resource, [{ id: userIdToDelete, role: LocalRole.ResourceUser }], timestamp, db, context);
+          await clearOutQueueDependantTickets(resource, [{ id: userId, role: LocalRole.ResourceUser }], context, TicketStatusCode.AwaitingConfirmation, db);
+          await clearOutQueueDependantTickets(resource, [{ id: userId, role: LocalRole.ResourceUser }], context, TicketStatusCode.Active, db);
+          await removeUsersInQueue(resource, [{ id: userId, role: LocalRole.ResourceUser }], timestamp, db, context);
         } catch (e) {
           console.log("Some queue dependant resource could not be cleared out");
         }
@@ -80,11 +89,11 @@ export const UserResolvers: Resolvers = {
         await session.withTransaction(async () => {
           // Delete tickets
           await db.collection<ResourceDbObject>(RESOURCES).updateMany({
-            "tickets.user._id": new ObjectId(userIdToDelete),
+            "tickets.user._id": new ObjectId(userId),
           }, {
             $pull: {
               tickets: {
-                "user._id": new ObjectId(userIdToDelete)
+                "user._id": new ObjectId(userId)
               }
             } as any
           }, {
@@ -93,12 +102,12 @@ export const UserResolvers: Resolvers = {
           // Delete resources
           await db.collection<ResourceDbObject>(RESOURCES).deleteMany(
             {
-              "createdBy._id": new ObjectId(userIdToDelete),
+              "createdBy._id": new ObjectId(userId),
               ...(!deleteAllFlag && {
                 $and: [{
                   "tickets.user.role": LocalRole.ResourceUser
                 },
-                { "tickets.user._id": { $ne: new ObjectId(userIdToDelete) } }]
+                { "tickets.user._id": { $ne: new ObjectId(userId) } }]
               })
             }, {
             session
@@ -106,11 +115,11 @@ export const UserResolvers: Resolvers = {
 
           // Delete notifications
           await db.collection<ResourceNotificationDbObject>(NOTIFICATIONS).deleteMany({
-            "user._id": new ObjectId(userIdToDelete ?? "")
+            "user._id": new ObjectId(userId ?? "")
           }, { session })
 
           // Delete user
-          await db.collection<UserDbObject>(USERS).deleteOne({ _id: new ObjectId(userIdToDelete) }, { session })
+          await db.collection<UserDbObject>(USERS).deleteOne({ _id: new ObjectId(userId) }, { session })
 
           if (result == null) {
             return { status: OperationResult.Error, newObjectId: null };
@@ -123,12 +132,11 @@ export const UserResolvers: Resolvers = {
         return result;
       }
       // Close session before it's too late!
-      context.logout((_) => {
-        // Implement if needed
-      });
+      context.logout(context.sid);
       return { status: OperationResult.Ok }
     }
   }
 }
+
 
 
