@@ -131,8 +131,26 @@ export const UserResolvers: Resolvers = {
       if (result.status === OperationResult.Error) {
         return result;
       }
+
+
+      context?.cache?.invalidate([
+        {
+          typename: "User"
+        },
+        {
+          typename: "PublicUser"
+        },
+        {
+          typename: "ResourceCard"
+        },
+        {
+          typename: "ResourceView"
+        }
+      ])
+
       // Close session before it's too late!
       context.logout(context.sid);
+
       return { status: OperationResult.Ok }
     }
   }

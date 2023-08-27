@@ -7,12 +7,15 @@ import { TemplatedApp } from "uWebSockets.js";
 import { useGraphQlJit } from '@envelop/graphql-jit'
 import { useParserCache } from "@envelop/parser-cache";
 
-import { useResponseCache, UseResponseCacheParameter } from '@graphql-yoga/plugin-response-cache'
+import { UseResponseCacheParameter, useResponseCache } from '@graphql-yoga/plugin-response-cache'
 import { createRedisCache } from '@envelop/response-cache-redis'
 import { getUserInfoFromRequest, initializeSessionStore, logoutSession } from "./src/middlewares/auth";
 import { corsRequestHandler } from "./src/middlewares/cors";
 import { ServerContext, UserContext } from "./src/types/yoga-context";
 import { initializeWebPush } from "./src/notifications/web-push";
+import _ from "lodash";
+import { queryNames } from "./src/consts/query-names";
+
 
 
 function onServerCreated(app: TemplatedApp) {
@@ -27,7 +30,7 @@ function onServerCreated(app: TemplatedApp) {
     schema,
     context: async ({ req, res, request, params }) => {
       // Context factory gets called for every request
-      const [sid,userId] = await getUserInfoFromRequest(request, params);
+      const [sid, userId] = await getUserInfoFromRequest(request, params);
       return {
         req,
         res,
@@ -47,9 +50,21 @@ function onServerCreated(app: TemplatedApp) {
       useGraphQlJit(),
       useParserCache(),
       useResponseCache({
+        idFields: ["id", "_id"],
         // cache based on the authorization header
         session: request => {
           return request.headers.get('authorization')
+        },
+        shouldCacheResult: ({ result }) => {
+          const functionBlacklist = [
+            // Add functions to blacklist
+          ]
+
+          const data = result?.data as any;
+          const isEmptyValue = queryNames.some(query => data?.[query] != null && _.isEmpty(data?.[query]))
+          const isValidFunction = functionBlacklist.every(key => data?.[key] == null);
+
+          return !isEmptyValue && isValidFunction
         },
         cache
       })
