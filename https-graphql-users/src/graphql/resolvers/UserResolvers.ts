@@ -126,6 +126,20 @@ export const UserResolvers: Resolvers = {
           }
         }, transactionOptions);
       } finally {
+        await context?.cache?.invalidate([
+          {
+            typename: "User"
+          },
+          {
+            typename: "PublicUser"
+          },
+          {
+            typename: "ResourceCard"
+          },
+          {
+            typename: "ResourceView"
+          }
+        ])
         await session.endSession();
       }
       if (result.status === OperationResult.Error) {
@@ -133,20 +147,7 @@ export const UserResolvers: Resolvers = {
       }
 
 
-      context?.cache?.invalidate([
-        {
-          typename: "User"
-        },
-        {
-          typename: "PublicUser"
-        },
-        {
-          typename: "ResourceCard"
-        },
-        {
-          typename: "ResourceView"
-        }
-      ])
+      
 
       // Close session before it's too late!
       context.logout(context.sid);
