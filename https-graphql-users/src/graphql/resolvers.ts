@@ -1,18 +1,23 @@
 
 import { LocalRole, OperationResult, Resolvers, ResourceDbObject, ResourceNotificationDbObject, TicketStatusCode, User, UserDbObject, UserDeletionResult } from "allotr-graphql-schema-types";
-import { ObjectId, ReadConcern, ReadPreference, TransactionOptions, WriteConcern } from "mongodb"
-import { NOTIFICATIONS, RESOURCES, USERS } from "../../consts/collections";
-import { clearOutQueueDependantTickets, removeUsersInQueue } from "../../utils/resolver-utils";
-import { GraphQLContext } from "../../types/yoga-context";
+import { ReadConcern, ReadPreference, TransactionOptions, WriteConcern } from "mongodb"
+import { NOTIFICATIONS, RESOURCES, USERS } from "../consts/collections";
+import { clearOutQueueDependantTickets, removeUsersInQueue } from "../utils/resolver-utils";
+import { GraphQLContext } from "../types/yoga-context";
 import { GraphQLError } from "graphql";
+import { getTargetUserId } from "../guards/guards";
+import { logoutByUserId } from "../middlewares/auth";
 
 
 export const UserResolvers: Resolvers = {
   Query: {
     currentUser: async (parent, args, context: GraphQLContext) => {
+      const { userId: targetUserId } = args;
+      const userId = getTargetUserId(context.user, targetUserId);
+
       const db = await (await context.mongoDBConnection).db;
-      const idToSearch = new ObjectId(context?.user?._id ?? "");
-      const user = await db.collection<UserDbObject>(USERS).findOne({ _id: idToSearch });
+      const user = await db.collection<UserDbObject>(USERS).findOne({ _id: userId });
+      
       if (user == null) {
         throw new GraphQLError("Cannot read user")
       }
@@ -44,10 +49,10 @@ export const UserResolvers: Resolvers = {
   },
   Mutation: {
     deleteUser: async (parent, args, context: GraphQLContext) => {
-      const { deleteAllFlag, userIdToDelete: userId } = args;
-      if (!new ObjectId(userId).equals(context?.user?._id ?? "")) {
-        return { status: OperationResult.Error }
-      }
+      const timestamp = new Date();
+      const { deleteAllFlag, userId: targetUserId } = args;
+      const userId = getTargetUserId(context.user, targetUserId);
+      const userIdString = userId.toHexString();
 
       const db = await (await context.mongoDBConnection).db;
 
@@ -55,21 +60,20 @@ export const UserResolvers: Resolvers = {
 
       let result: UserDeletionResult = { status: OperationResult.Ok };
 
-      const timestamp = new Date();
 
       // We must liberate all resources that lock the queue for other users
       // This code is not inside this operation session because it has its own session
       const userResourceList = await db.collection<ResourceDbObject>(RESOURCES).find({
-        "tickets.user._id": context.user._id
+        "tickets.user._id": userId
       }).sort({
         creationDate: 1
       }).toArray();
 
       for (const resource of userResourceList) {
         try {
-          await clearOutQueueDependantTickets(resource, [{ id: userId, role: LocalRole.ResourceUser }], context, TicketStatusCode.AwaitingConfirmation, db);
-          await clearOutQueueDependantTickets(resource, [{ id: userId, role: LocalRole.ResourceUser }], context, TicketStatusCode.Active, db);
-          await removeUsersInQueue(resource, [{ id: userId, role: LocalRole.ResourceUser }], timestamp, db, context);
+          await clearOutQueueDependantTickets(resource, [{ id: userIdString, role: LocalRole.ResourceUser }], context, TicketStatusCode.AwaitingConfirmation, db);
+          await clearOutQueueDependantTickets(resource, [{ id: userIdString, role: LocalRole.ResourceUser }], context, TicketStatusCode.Active, db);
+          await removeUsersInQueue(resource, [{ id: userIdString, role: LocalRole.ResourceUser }], timestamp, db, context);
         } catch (e) {
           console.log("Some queue dependant resource could not be cleared out");
         }
@@ -89,11 +93,11 @@ export const UserResolvers: Resolvers = {
         await session.withTransaction(async () => {
           // Delete tickets
           await db.collection<ResourceDbObject>(RESOURCES).updateMany({
-            "tickets.user._id": new ObjectId(userId),
+            "tickets.user._id": userId,
           }, {
             $pull: {
               tickets: {
-                "user._id": new ObjectId(userId)
+                "user._id": userId
               }
             } as any
           }, {
@@ -102,12 +106,12 @@ export const UserResolvers: Resolvers = {
           // Delete resources
           await db.collection<ResourceDbObject>(RESOURCES).deleteMany(
             {
-              "createdBy._id": new ObjectId(userId),
+              "createdBy._id": userId,
               ...(!deleteAllFlag && {
                 $and: [{
                   "tickets.user.role": LocalRole.ResourceUser
                 },
-                { "tickets.user._id": { $ne: new ObjectId(userId) } }]
+                { "tickets.user._id": { $ne: userId } }]
               })
             }, {
             session
@@ -115,11 +119,11 @@ export const UserResolvers: Resolvers = {
 
           // Delete notifications
           await db.collection<ResourceNotificationDbObject>(NOTIFICATIONS).deleteMany({
-            "user._id": new ObjectId(userId ?? "")
+            "user._id": userId
           }, { session })
 
           // Delete user
-          await db.collection<UserDbObject>(USERS).deleteOne({ _id: new ObjectId(userId) }, { session })
+          await db.collection<UserDbObject>(USERS).deleteOne({ _id: userId }, { session })
 
           if (result == null) {
             return { status: OperationResult.Error, newObjectId: null };
@@ -147,10 +151,10 @@ export const UserResolvers: Resolvers = {
       }
 
 
-      
+
 
       // Close session before it's too late!
-      context.logout(context.sid);
+      await logoutByUserId(userId);
 
       return { status: OperationResult.Ok }
     }

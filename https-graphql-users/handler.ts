@@ -7,15 +7,14 @@ import { TemplatedApp } from "uWebSockets.js";
 import { useGraphQlJit } from '@envelop/graphql-jit'
 import { useParserCache } from "@envelop/parser-cache";
 
-import { UseResponseCacheParameter, useResponseCache } from '@graphql-yoga/plugin-response-cache'
+import { useResponseCache, UseResponseCacheParameter } from '@graphql-yoga/plugin-response-cache'
 import { createRedisCache } from '@envelop/response-cache-redis'
 import { getUserInfoFromRequest, initializeSessionStore, logoutSession } from "./src/middlewares/auth";
 import { corsRequestHandler } from "./src/middlewares/cors";
 import { ServerContext, UserContext } from "./src/types/yoga-context";
 import { initializeWebPush } from "./src/notifications/web-push";
-import _ from "lodash";
 import { queryNames } from "./src/consts/query-names";
-
+import _ from "lodash";
 
 
 function onServerCreated(app: TemplatedApp) {
@@ -30,13 +29,11 @@ function onServerCreated(app: TemplatedApp) {
     schema,
     context: async ({ req, res, request, params }) => {
       // Context factory gets called for every request
-      const [sid, userId] = await getUserInfoFromRequest(request, params);
+      const [sid, user] = await getUserInfoFromRequest(request, params);
       return {
         req,
         res,
-        user: {
-          _id: userId! // After login the user id is not null
-        },
+        user: user!,// After login the user is not null
         mongoDBConnection: getMongoDBConnection(),
         redisConnection: getRedisConnection(),
         sid: sid!, // After login the session id is not null
@@ -61,10 +58,14 @@ function onServerCreated(app: TemplatedApp) {
           ]
 
           const data = result?.data as any;
-          const isEmptyValue = queryNames.some(query => data?.[query] != null && _.isEmpty(data?.[query]))
+          // Check only fields in data
+          const fieldsAvailable = queryNames.filter(field=>field in (data ?? {}));
+          // Check value is not empty
+          const isValidValue = fieldsAvailable.every(query => !_.isEmpty(data?.[query]));
+          // Check function is valid
           const isValidFunction = functionBlacklist.every(key => data?.[key] == null);
 
-          return !isEmptyValue && isValidFunction
+          return isValidValue && isValidFunction
         },
         cache
       })

@@ -3,8 +3,13 @@ import { Store } from "express-session";
 import MongoStore from 'connect-mongo';
 import { ObjectId } from "mongodb";
 import { GraphQLError, parse } from "graphql";
-import { GraphQLContext } from "src/types/yoga-context";
 import { GraphQLParams } from "graphql-yoga";
+import { getUser } from "../utils/resolver-utils";
+import { getMongoDBConnection } from "../utils/mongodb-connector";
+import { UserDbObject } from "allotr-graphql-schema-types";
+import { SESSIONS } from "../consts/collections";
+
+const UNAUTHORIZED_MSG = "Unauthorized, log in!";
 
 let store: Store;
 let sessionSecret: string;
@@ -19,14 +24,26 @@ function initializeSessionStore() {
     sessionSecret = SESSION_SECRET;
 }
 
-async function getUserInfoFromRequest(request: Request, params: GraphQLParams<Record<string, any>, Record<string, any>>): Promise<[sid: string | null, userId: ObjectId | null]> {
+async function getUserInfoFromRequest(request: Request, params: GraphQLParams<Record<string, any>, Record<string, any>>): Promise<[sid: string | null, user: UserDbObject | null]> {
+    // Get session id
     const sid = getSessionIdFromHeader(request);
-    const userId = await getUserIdFromSessionStore(sid);
-  
-    if (!isSDLQuery(params) && userId == null) {
-        throw new GraphQLError("Unauthorized, log in!");
+    if (isSDLQuery(params)) {
+        return [sid, null];
     }
-    return [sid, userId];
+    // Get user id
+    const userId = await getUserIdFromSessionStore(sid);
+
+    if (userId == null) {
+        throw new GraphQLError(UNAUTHORIZED_MSG);
+    }
+    const db = await (await getMongoDBConnection()).db;
+
+    // Get user data from database
+    const user = await getUser(userId, db)
+    if (user == null) {
+        throw new GraphQLError(UNAUTHORIZED_MSG);
+    }
+    return [sid, user!];
 }
 
 function isSDLQuery(params: GraphQLParams<Record<string, any>, Record<string, any>>): boolean {
@@ -79,5 +96,27 @@ function logoutSession(sid: string): Promise<void> {
     })
 }
 
+async function logoutByUserId(userId: ObjectId): Promise<void> {
+    const db = await (await getMongoDBConnection()).db;
 
-export { initializeSessionStore, getUserInfoFromRequest, logoutSession }
+    const sessionList = await db.collection(SESSIONS).find({}).toArray() as any[];
+
+    for (const { _id, session } of sessionList) {
+        if (_id == null) {
+            continue;
+        }
+        const parsedSession = JSON.parse(session ?? "");
+        const sessionUserId = parsedSession?.passport?.user;
+
+        // Skip non user cookies
+        if (sessionUserId !== userId.toHexString()) {
+            continue;
+        }
+
+        await logoutSession(_id);
+    }
+
+}
+
+
+export { initializeSessionStore, getUserInfoFromRequest, logoutSession, logoutByUserId }
