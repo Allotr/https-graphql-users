@@ -5,7 +5,7 @@ import { NOTIFICATIONS, RESOURCES, USERS } from "../consts/collections";
 import { sendNotification } from "../notifications/web-push";
 import { RESOURCE_READY_TO_PICK } from "../consts/connection-tokens";
 import { getRedisConnection } from "./redis-connector";
-
+import { lockCacheWrite, unlockCacheWrite } from "../cache/lock";
 import { GraphQLContext } from "../types/yoga-context";
 import { canRequestStatusChange, getTargetUserId } from "../guards/guards";
 async function getUserTicket(userId: string | ObjectId, resourceId: string, db: Db, session?: ClientSession): Promise<ResourceDbObject | null> {
@@ -245,10 +245,12 @@ async function forwardQueue(
                     // Implement if needed
                 }
                 finally {
+                    lockCacheWrite();
                     await context?.cache?.invalidate([
                         { typename: 'ResourceView' },
                         { typename: 'ResourceCard' }
                     ])
+                    unlockCacheWrite();
                     await session.endSession();
                 }
                 if (result.status === OperationResult.Error) {
@@ -310,10 +312,12 @@ async function forwardQueue(
                     // Implement if needed
                 }
                 finally {
+                    lockCacheWrite();
                     await context?.cache?.invalidate([
                         { typename: 'ResourceView' },
                         { typename: 'ResourceCard' }
                     ])
+                    unlockCacheWrite();
                     await session.endSession();
                 }
     
@@ -340,10 +344,12 @@ async function forwardQueue(
                     // Implement if needed
                 }
                 finally {
+                    lockCacheWrite();
                     await context?.cache?.invalidate([
                         { typename: 'ResourceView' },
                         { typename: 'ResourceCard' }
                     ])
+                    unlockCacheWrite();
                     await session2.endSession();
                 }
                 if (result.status === OperationResult.Error) {
@@ -362,10 +368,12 @@ async function forwardQueue(
     
                 await pushNotification(resource?.name, resource?._id, resource?.createdBy?._id, resource?.createdBy?.username, timestamp, db);
     
+                lockCacheWrite();
                 await context?.cache?.invalidate([
                     { typename: 'ResourceView' },
                     { typename: 'ResourceCard' }
                 ])
+                unlockCacheWrite();
     
                 // Status changed, now let's return the new resource
                 return generateOutputByResource["HOME"](resource, userId, resourceId, db);

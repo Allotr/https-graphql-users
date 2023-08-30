@@ -7,6 +7,7 @@ import { GraphQLContext } from "../types/yoga-context";
 import { GraphQLError } from "graphql";
 import { getTargetUserId } from "../guards/guards";
 import { logoutByUserId } from "../middlewares/auth";
+import { lockCacheWrite, unlockCacheWrite } from "../cache/lock";
 
 
 export const UserResolvers: Resolvers = {
@@ -130,6 +131,7 @@ export const UserResolvers: Resolvers = {
           }
         }, transactionOptions);
       } finally {
+        lockCacheWrite();
         await context?.cache?.invalidate([
           {
             typename: "User"
@@ -144,6 +146,7 @@ export const UserResolvers: Resolvers = {
             typename: "ResourceView"
           }
         ])
+        unlockCacheWrite();
         await session.endSession();
       }
       if (result.status === OperationResult.Error) {
