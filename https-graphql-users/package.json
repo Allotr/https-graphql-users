@@ -32,7 +32,6 @@
     "@graphql-tools/schema": "^8.1.2",
     "@graphql-tools/stitching-directives": "^3.0.0",
     "@graphql-tools/utils": "^8.1.1",
-    "@graphql-yoga/plugin-response-cache": "^2.1.1",
     "allotr-graphql-schema-types": "3.0.4",
     "connect-mongo": "^4.6.0",
     "cookie": "^0.5.0",
@@ -52,6 +51,7 @@
     "passport": "^0.6.0",
     "passport-google-oauth20": "^2.0.0",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.31.0",
-    "web-push": "^3.6.4"
+    "web-push": "^3.6.4",
+    "yoga-response-cache-custom": "^0.0.2"
   }
 }

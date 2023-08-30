@@ -131,7 +131,7 @@ export const UserResolvers: Resolvers = {
           }
         }, transactionOptions);
       } finally {
-        lockCacheWrite();
+        await lockCacheWrite();
         await context?.cache?.invalidate([
           {
             typename: "User"
@@ -146,7 +146,7 @@ export const UserResolvers: Resolvers = {
             typename: "ResourceView"
           }
         ])
-        unlockCacheWrite();
+        await unlockCacheWrite();
         await session.endSession();
       }
       if (result.status === OperationResult.Error) {
