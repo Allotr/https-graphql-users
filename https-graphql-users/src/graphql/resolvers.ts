@@ -18,7 +18,7 @@ export const UserResolvers: Resolvers = {
 
       const db = await (await context.mongoDBConnection).db;
       const user = await db.collection<UserDbObject>(USERS).findOne({ _id: userId });
-      
+
       if (user == null) {
         throw new GraphQLError("Cannot read user")
       }
@@ -64,9 +64,12 @@ export const UserResolvers: Resolvers = {
 
       // We must liberate all resources that lock the queue for other users
       // This code is not inside this operation session because it has its own session
-      const userResourceList = await db.collection<ResourceDbObject>(RESOURCES).find({
-        "tickets.user._id": userId
-      }).sort({
+      const userResourceList = await db.collection<ResourceDbObject>(RESOURCES).find(
+        {
+          "tickets.user._id": userId,
+          ...(deleteAllFlag && { "createdBy._id": { $ne: userId } })
+        }
+      ).sort({
         creationDate: 1
       }).toArray();
 
