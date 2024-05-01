@@ -60,10 +60,6 @@ function onServerCreated(app: TemplatedApp) {
             return false;
           }
 
-          const functionBlacklist = [
-            // Add functions to blacklist
-          ]
-
           const data = result?.data as any;
           // Check that result is not an error
           const hasOkValue = !_.isEmpty(result?.data) && _.isEmpty(result?.errors);
@@ -71,10 +67,8 @@ function onServerCreated(app: TemplatedApp) {
           const fieldsAvailable = queryNames.filter(field => field in (data ?? {}));
           // Check value is not empty
           const isValidValue = fieldsAvailable.every(query => !_.isEmpty(data?.[query]));
-          // Check function is valid
-          const isValidFunction = functionBlacklist.every(key => data?.[key] == null);
 
-          return hasOkValue && isValidValue && isValidFunction
+          return hasOkValue && isValidValue
         },
         cache
       })
